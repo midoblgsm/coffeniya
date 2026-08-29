@@ -6,8 +6,16 @@ import { buildStockIncrements, normalizeShopName } from './logic';
 initializeApp();
 const db = getFirestore();
 
+// invoker: 'public' makes every deploy (re)assert the allow-unauthenticated
+// IAM binding on the underlying Cloud Run service. Without it the binding is
+// only set when a function is first created, so a partially failed deploy can
+// leave a function returning 403 to browsers (which surfaces as a CORS
+// preflight error). Callable/HTTPS functions still enforce Firebase Auth in
+// their handlers.
+const publicInvoker = { invoker: 'public' as const };
+
 /** Simple liveness probe, handy for uptime checks. */
-export const health = onRequest((_req, res) => {
+export const health = onRequest(publicInvoker, (_req, res) => {
   res.json({ ok: true, service: 'coffeniya', time: new Date().toISOString() });
 });
 
@@ -17,7 +25,7 @@ export const health = onRequest((_req, res) => {
  * Shops are only ever created here (Firestore rules deny client-side shop
  * creation) so ownership and membership stay consistent with users/{uid}.
  */
-export const createShop = onCall(async (request) => {
+export const createShop = onCall(publicInvoker, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in to create a shop.');
@@ -64,7 +72,7 @@ export const createShop = onCall(async (request) => {
  * Firestore rules block clients from setting an order's status to
  * 'received' directly, so stock arithmetic is always server-authoritative.
  */
-export const receiveOrder = onCall(async (request) => {
+export const receiveOrder = onCall(publicInvoker, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in to receive orders.');
