@@ -1,0 +1,59 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function shopMembers(shopId) {
+      return get(/databases/$(database)/documents/shops/$(shopId)).data.members;
+    }
+
+    function isShopMember(shopId) {
+      return signedIn() && request.auth.uid in shopMembers(shopId);
+    }
+
+    // A user may read their own profile document. Profile documents are
+    // created and updated by the createShop callable function (Admin SDK),
+    // which bypasses these rules.
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /shops/{shopId} {
+      // Shops are created by the createShop callable function only.
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow create, delete: if false;
+      // Only the owner may rename the shop; membership and ownership are
+      // immutable from the client.
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.ownerUid
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.members == resource.data.members;
+
+      match /suppliers/{supplierId} {
+        allow read, create, update, delete: if isShopMember(shopId);
+      }
+
+      match /items/{itemId} {
+        allow read, create, update, delete: if isShopMember(shopId);
+      }
+
+      match /orders/{orderId} {
+        allow read, delete: if isShopMember(shopId);
+        // Orders can be created and edited by members, but marking an order
+        // as received (which increments stock) must go through the
+        // receiveOrder callable function so stock updates stay atomic and
+        // server-authoritative.
+        allow create: if isShopMember(shopId)
+          && request.resource.data.status in ['draft', 'ordered'];
+        allow update: if isShopMember(shopId)
+          && resource.data.status != 'received'
+          && request.resource.data.status in ['draft', 'ordered'];
+      }
+    }
+  }
+}
