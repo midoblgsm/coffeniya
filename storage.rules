@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isShopMember(shopId) {
+      return request.auth != null
+        && request.auth.uid in firestore.get(
+             /databases/(default)/documents/shops/$(shopId)
+           ).data.members;
+    }
+
+    // Files (supplier contracts, price lists, photos) live under their shop.
+    match /shops/{shopId}/{allPaths=**} {
+      allow read: if isShopMember(shopId);
+      allow write: if isShopMember(shopId)
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Everything else is locked down.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

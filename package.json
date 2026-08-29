@@ -1,0 +1,12 @@
+{
+  "name": "coffeniya",
+  "description": "Supplier and inventory management platform for independent coffee shops",
+  "private": true,
+  "scripts": {
+    "e2e": "npm run build --prefix functions && firebase emulators:exec --project demo-coffeniya --only auth,firestore,functions,storage \"npm --prefix web run test:e2e\"",
+    "emulators": "npm run build --prefix functions && firebase emulators:start --project demo-coffeniya --only auth,firestore,functions,storage"
+  },
+  "devDependencies": {
+    "firebase-tools": "^14.0.0"
+  }
+}
