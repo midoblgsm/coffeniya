@@ -6,12 +6,15 @@ import { buildStockIncrements, normalizeShopName } from './logic';
 initializeApp();
 const db = getFirestore();
 
-// invoker: 'public' makes every deploy (re)assert the allow-unauthenticated
-// IAM binding on the underlying Cloud Run service. Without it the binding is
-// only set when a function is first created, so a partially failed deploy can
-// leave a function returning 403 to browsers (which surfaces as a CORS
-// preflight error). Callable/HTTPS functions still enforce Firebase Auth in
-// their handlers.
+// invoker: 'public' makes deploys (re)assert the allow-unauthenticated IAM
+// binding on the underlying Cloud Run service — but only for onRequest
+// functions: the SDK currently drops this option for onCall, and the CLI
+// never touches IAM when *updating* callable functions. The deploy workflow
+// therefore also asserts the binding on the callable services with gcloud
+// after every deploy (see .github/workflows/deploy.yml); a partially failed
+// create would otherwise leave a callable returning 403 to browser
+// preflights, surfacing as a CORS error. Auth is still enforced in the
+// handlers.
 const publicInvoker = { invoker: 'public' as const };
 
 /** Simple liveness probe, handy for uptime checks. */

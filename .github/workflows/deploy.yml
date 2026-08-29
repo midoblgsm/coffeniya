@@ -56,23 +56,38 @@ jobs:
         run: npm run build
         working-directory: web
 
-      - name: Write service account credentials
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+      # Exports GOOGLE_APPLICATION_CREDENTIALS (used by firebase-tools) and
+      # authenticates gcloud; credentials are cleaned up in the action's
+      # post step.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       # Deploys hosting, functions, Firestore rules + indexes, and Storage
       # rules in one shot. The functions predeploy hook (firebase.json)
       # compiles TypeScript before upload.
       - name: Deploy to Firebase
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: >
           npx firebase-tools deploy
           --only hosting,functions,firestore,storage
           --project "${{ vars.VITE_FIREBASE_PROJECT_ID }}"
           --non-interactive --force
 
-      - name: Remove service account credentials
-        if: always()
-        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
+      # firebase-tools only grants public (unauthenticated) invocation to
+      # callable functions when it CREATES them — updates never touch IAM,
+      # and the firebase-functions SDK drops the `invoker` option for
+      # onCall. If a deploy ever fails mid-create, the function is left
+      # rejecting browser preflights with 403 (surfacing as a CORS error).
+      # Asserting the binding here on every deploy makes that self-healing.
+      # The callables still enforce Firebase Auth in their handlers.
+      - name: Ensure callable functions allow unauthenticated invocation
+        run: |
+          for service in createshop receiveorder; do
+            gcloud run services add-iam-policy-binding "$service" \
+              --project="${{ vars.VITE_FIREBASE_PROJECT_ID }}" \
+              --region=us-central1 \
+              --member=allUsers \
+              --role=roles/run.invoker \
+              --quiet
+          done
